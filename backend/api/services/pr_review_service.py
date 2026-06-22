@@ -13,7 +13,7 @@ from starlette.responses import JSONResponse
 load_dotenv('.env')
 
 
-gemini_api_key = os.getenv("GEMINI_API_KEY")
+gemini_api_key = "iu3r9hfh3vro3r"
 gemini_client = genai.Client(api_key=gemini_api_key) if gemini_api_key else None
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
