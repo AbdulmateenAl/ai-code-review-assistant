@@ -5,6 +5,7 @@ import requests
 from fastapi import HTTPException
 import os
 from google import genai
+from openai import OpenAI
 from dotenv import load_dotenv
 import jwt
 from starlette.responses import JSONResponse
@@ -12,8 +13,13 @@ from starlette.responses import JSONResponse
 load_dotenv('.env')
 
 
-api_key = os.getenv("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key)
+gemini_api_key = os.getenv("GEMINI_API_KEY")
+gemini_client = genai.Client(api_key=gemini_api_key) if gemini_api_key else None
+
+openai_api_key = os.getenv("OPENAI_API_KEY")
+openai_client = OpenAI(api_key=openai_api_key) if openai_api_key else None
+
+AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").lower()
 
 
 # github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
@@ -67,8 +73,17 @@ class GithubAppAuth:
         return token_response.json()['token']
 
 
+def _decode_private_key(raw: str) -> str:
+    """Normalize private key — handles both real newlines and escaped \\n from env vars."""
+    key = raw.replace('\\n', '\n')
+    # Render sometimes strips newlines from the header/footer lines too
+    if '-----BEGIN RSA PRIVATE KEY-----' in key and '\n' not in key.split('-----BEGIN RSA PRIVATE KEY-----')[1][:10]:
+        key = key.replace('-----BEGIN RSA PRIVATE KEY-----', '-----BEGIN RSA PRIVATE KEY-----\n')
+        key = key.replace('-----END RSA PRIVATE KEY-----', '\n-----END RSA PRIVATE KEY-----')
+    return key
+
 if GITHUB_PRIVATE_KEY:
-    DECODED_GITHUB_PRIVATE_KEY = GITHUB_PRIVATE_KEY.replace('\\n', '\n')
+    DECODED_GITHUB_PRIVATE_KEY = _decode_private_key(GITHUB_PRIVATE_KEY)
     github_app = GithubAppAuth(GITHUB_APP_ID, DECODED_GITHUB_PRIVATE_KEY)
 
 
@@ -83,35 +98,60 @@ if GITHUB_PRIVATE_KEY:
 #     return response
 
 
+REVIEW_PROMPT = """You’re a senior engineer reviewing this PR. Scan the diff below and give clear, actionable feedback on:
+
+- **Bugs & logic errors**
+- **Readability & style**
+- **Best practices**
+- **Performance hotspots**
+- **Security risks**
+
+Keep it short and concise — no AI jargon, straight to the point. Use Markdown with bold headings and bullet points. Skip pasting the actual diff.
+
+## Diff
+```diff
+{diff_content}
+```"""
+
+
 async def analyze_diff_with_gemini(diff_content):
     if diff_content is None:
         return HTTPException(status_code=404, detail="PR diff not found")
-
     try:
-        prompt = f"""
-        You’re a Google engineer reviewing this PR. Scan the diff below and give me clear, actionable feedback on:
-
-        - Bugs & logic errors 
-        - Readability & style   
-        -  Best practices   
-        -  Performance hotspots   
-        -  Security risks 
-
-        Keep it very short and concise no AI jargon's straight to the point, use Markdown with bold headings and bullet points, and skip pasting the actual diff.
-
-        ## Diff
-        ```diff
-        {diff_content}
-        """
-
-        response = client.models.generate_content(
+        response = gemini_client.models.generate_content(
             model="gemini-2.0-flash",
-            contents=prompt
+            contents=REVIEW_PROMPT.format(diff_content=diff_content)
         )
         return response.text
-
     except Exception as e:
         return HTTPException(status_code=500, detail=str(e))
+
+
+async def analyze_diff_with_openai(diff_content):
+    if diff_content is None:
+        return HTTPException(status_code=404, detail="PR diff not found")
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a senior software engineer doing a code review."},
+                {"role": "user", "content": REVIEW_PROMPT.format(diff_content=diff_content)}
+            ]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return HTTPException(status_code=500, detail=str(e))
+
+
+async def analyze_diff(diff_content):
+    """Route to the configured AI provider, fall back to the other if unavailable."""
+    if AI_PROVIDER == "openai" and openai_client:
+        return await analyze_diff_with_openai(diff_content)
+    elif gemini_client:
+        return await analyze_diff_with_gemini(diff_content)
+    elif openai_client:
+        return await analyze_diff_with_openai(diff_content)
+    return HTTPException(status_code=500, detail="No AI provider configured. Set GEMINI_API_KEY or OPENAI_API_KEY.")
 
 
 async def pr_comment(owner, repo, pr_number, comment):
@@ -410,8 +450,7 @@ async def fetch_pull_request_diff_with_app(
             "changes": changes
         }
 
-        # Analyze with Gemini
-        analysis_result = await analyze_diff_with_gemini(formatted_diff)
+        analysis_result = await analyze_diff(formatted_diff)
 
         if isinstance(analysis_result, HTTPException):
             return JSONResponse(
