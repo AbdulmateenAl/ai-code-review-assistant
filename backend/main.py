@@ -30,7 +30,7 @@ async def github_webhook(request: Request):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid JSON body: {e}")
 
     # Check if it's a PR opened or reopened event
-    if (payload.get('action') == 'opened' or payload.get('action') == 'reopened'  and  'pull_request' in payload):
+    if (payload.get('action') in ('opened', 'reopened') and 'pull_request' in payload):
         owner = payload['repository']['owner']['login']
         print(f'owner: {owner}')
         repo_name = payload['repository']['name']
