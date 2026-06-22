@@ -7,7 +7,7 @@ from fastapi import APIRouter
 from starlette.responses import JSONResponse
 from dotenv import load_dotenv
 
-from api.services.pr_review_service import analyze_diff_with_gemini, pr_comment, fetch_repo_contents, \
+from api.services.pr_review_service import analyze_diff, pr_comment, fetch_repo_contents, \
     analyze_repo_with_gemini, create_github_issues
 
 load_dotenv('.env')
@@ -76,7 +76,7 @@ async def fetch_pull_request_diff(
         "changes": changes
     }
 
-    analysis_result = await analyze_diff_with_gemini(formatted_diff)
+    analysis_result = await analyze_diff(formatted_diff)
 
     if isinstance(analysis_result, HTTPException):
         return JSONResponse(
