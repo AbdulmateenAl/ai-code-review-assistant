@@ -5,9 +5,12 @@ from fastapi import status, Response, Request, HTTPException
 from fastapi.responses import ORJSONResponse, PlainTextResponse
 from fastapi import APIRouter
 from starlette.responses import JSONResponse
+from dotenv import load_dotenv
 
 from api.services.pr_review_service import analyze_diff_with_gemini, pr_comment, fetch_repo_contents, \
     analyze_repo_with_gemini, create_github_issues
+
+load_dotenv('.env')
 
 pr_review = APIRouter(prefix="/pr_review", tags=["PR-review-agent"])
 
