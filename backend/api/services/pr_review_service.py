@@ -154,7 +154,7 @@ async def fetch_repo_contents(owner, repo, path=""):
 
         if not response.ok:
             raise HTTPException(status_code=response.status_code, detail=f"Error fetching repo contents: {response.status_code} - {response.text}")
-        return []
+            return []
 
         items = response.json()
 
